@@ -16,6 +16,9 @@ amd64:
 arm:
 	GOOS=linux GOARCH=arm go build ${LDFLAGS} -o ${BUILD_DIR}/${APP}-linux-arm -v cmd/${APP}/*.go
 
+lint:
+	golint ./pkg/... ./cmd/...
+
 test:
 	go test -v ./...
 
