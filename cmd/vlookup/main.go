@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	format = "%-5s %-10s %-20s %-30s %-35s\n"
+	format = "%-5s %-10s %-20s %-20s %-20s %-15s\n"
 )
 
 func main() {
@@ -50,8 +50,8 @@ func main() {
 	log.Printf("check %d entries\n", len(mp))
 
 	var buf bytes.Buffer
-	fmt.Fprintf(&buf, format, "idx", "interface", "MAC", "Name", "Address")
-	fmt.Fprintf(&buf, format, "---", "---------", "---", "----", "-------")
+	fmt.Fprintf(&buf, format, "idx", "interface", "IP", "MAC", "Name", "Address")
+	fmt.Fprintf(&buf, format, "---", "---------", "--", "---", "----", "-------")
 	for i, e := range arp.ParseEntries(arp.FromCache()) {
 		if *iface != "" && e.Device != nil && e.Device.Name != *iface {
 			continue
@@ -68,7 +68,8 @@ func main() {
 				addr = addr[0:*trimAddress]
 			}
 		}
-		fmt.Fprintf(&buf, format, idx, devIface, mac, name, addr)
+		ip := e.Address.String()
+		fmt.Fprintf(&buf, format, idx, devIface, ip, mac, name, addr)
 	}
 	var b io.Reader = &buf
 	if *store != "" {
