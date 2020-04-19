@@ -2,12 +2,15 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"flag"
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"os"
 	"strconv"
+	"time"
 
 	"github.com/frzifus/vlookup/pkg/arp"
 	"github.com/frzifus/vlookup/pkg/macpack"
@@ -27,6 +30,9 @@ func main() {
 
 		trimAddress = flag.Int("trim.address", 40, "limits the length of the address field")
 
+		arpScan    = flag.Bool("arp.scan", false, "actively searches the network for other devices, this operation requires root privileges")
+		arpTimeout = flag.Duration("arp.timeout", 10*time.Second, "time to wait for responses")
+
 		iface = flag.String("i", "", "filter interface")
 		store = flag.String("o", "", "output file")
 
@@ -43,16 +49,44 @@ func main() {
 		flag.PrintDefaults()
 		return
 	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), *arpTimeout)
+	defer cancel()
+	var scanResult []*arp.Entry
+	var err error
+	if *arpScan {
+		if scanResult, err = doScan(ctx); err != nil {
+			log.Fatalln(err)
+		}
+		log.Println("finished scan")
+	}
+
+	// NOTE: to improve performance, the comparison list should be updated in
+	// parallel with the network scan. Also the same context can be used for this.
 	mp, err := macpack.New(opts...)
 	if err != nil {
 		log.Fatalln(err)
 	}
-	log.Printf("check %d entries\n", len(mp))
+	log.Printf("check %d vendor entries\n", len(mp))
+
+	// NOTE: the cache list and the scan result are merged here. Duplicates
+	// are removed. In principle, this should be performed by the arp discovery
+	// service.
+	// TODO: move and hide in arp package
+	entries := make(map[string]*arp.Entry)
+	for _, e := range arp.ParseEntries(arp.FromCache()) {
+		entries[e.Address.String()] = e
+	}
+	for _, e := range scanResult {
+		entries[e.Address.String()] = e
+	}
 
 	var buf bytes.Buffer
 	fmt.Fprintf(&buf, format, "idx", "interface", "IP", "MAC", "Name", "Address")
 	fmt.Fprintf(&buf, format, "---", "---------", "--", "---", "----", "-------")
-	for i, e := range arp.ParseEntries(arp.FromCache()) {
+	var i int
+	for _, e := range entries {
+		i++
 		if *iface != "" && e.Device != nil && e.Device.Name != *iface {
 			continue
 		}
@@ -100,4 +134,48 @@ func srcOptions(large, medium, small bool, local string) []macpack.Option {
 		opts = append(opts, macpack.WithLocalSource(local))
 	}
 	return opts
+}
+
+func doScan(ctx context.Context) ([]*arp.Entry, error) {
+	if os.Geteuid() > 0 {
+		log.Fatalln("user has insufficient permissions")
+	}
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return nil, err
+	}
+
+	hosts := make(chan arp.Entry)
+	errc := make(chan error)
+	var entries []*arp.Entry
+	for _, iface := range ifaces {
+		go func(ctx context.Context, iface net.Interface) {
+			if iface.Flags&(net.FlagLoopback|net.FlagPointToPoint) != 0 ||
+				iface.Flags&net.FlagUp == 0 {
+				log.Println("skip interface: ", iface.Name)
+				return
+			}
+
+			log.Println("start scan on interface", iface.Name)
+			d, err := arp.NewDiscovery(&iface)
+			if err != nil {
+				errc <- err
+				return
+			}
+			defer d.Close()
+			if err := d.Find(ctx, hosts); err != nil {
+				errc <- err
+			}
+		}(ctx, iface)
+	}
+	for {
+		select {
+		case h := <-hosts:
+			entries = append(entries, &h)
+		case <-ctx.Done():
+			return entries, nil
+		case err := <-errc:
+			return nil, err
+		}
+	}
 }
