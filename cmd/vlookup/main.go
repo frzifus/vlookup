@@ -9,11 +9,13 @@ import (
 	"log"
 	"net"
 	"os"
+	"path"
 	"strconv"
 	"time"
 
 	"github.com/frzifus/vlookup/pkg/arp"
 	"github.com/frzifus/vlookup/pkg/macpack"
+	"github.com/frzifus/vlookup/pkg/tables"
 	"github.com/frzifus/vlookup/pkg/version"
 )
 
@@ -26,6 +28,11 @@ func main() {
 		srcFetchMacLarge  = flag.Bool("src.fetch-l", false, "get large from ieee.org")
 		srcFetchMacMedium = flag.Bool("src.fetch-m", false, "get medium from ieee.org")
 		srcFetchMacSmall  = flag.Bool("src.fetch-s", false, "get small from ieee.org")
+
+		srcEmbdMacLarge  = flag.Bool("src.embd-l", false, "embedded large from ieee.org")
+		srcEmbdMacMedium = flag.Bool("src.embd-m", false, "embedded medium from ieee.org")
+		srcEmbdMacSmall  = flag.Bool("src.embd-s", false, "embedded small from ieee.org")
+
 		srcLocalFile      = flag.String("src.local-file", "", "use file input")
 
 		trimAddress = flag.Int("trim.address", 40, "limits the length of the address field")
@@ -44,7 +51,14 @@ func main() {
 		return
 	}
 
-	opts := srcOptions(*srcFetchMacLarge, *srcFetchMacMedium, *srcFetchMacSmall, *srcLocalFile)
+	opts, err := srcOptions(
+		*srcFetchMacLarge, *srcFetchMacMedium, *srcFetchMacSmall,
+		*srcEmbdMacLarge, *srcEmbdMacMedium, *srcEmbdMacSmall,
+		*srcLocalFile,
+	)
+	if err != nil {
+		log.Fatalln(err)
+	}
 	if len(opts) == 0 {
 		flag.PrintDefaults()
 		return
@@ -53,7 +67,6 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), *arpTimeout)
 	defer cancel()
 	var scanResult []*arp.Entry
-	var err error
 	if *arpScan {
 		if scanResult, err = doScan(ctx); err != nil {
 			log.Fatalln(err)
@@ -119,7 +132,11 @@ func main() {
 	}
 }
 
-func srcOptions(large, medium, small bool, local string) []macpack.Option {
+func srcOptions(
+	large, medium, small bool,
+	embdLarge, embdMedium, embdSmall bool,
+	local string,
+) ([]macpack.Option, error) {
 	var opts []macpack.Option
 	if large {
 		opts = append(opts, macpack.WithRemoteSource(macpack.RemoteIeeeMACLarge))
@@ -130,10 +147,37 @@ func srcOptions(large, medium, small bool, local string) []macpack.Option {
 	if small {
 		opts = append(opts, macpack.WithRemoteSource(macpack.RemoteIeeeMACSmall))
 	}
+	if embdLarge || embdMedium || embdSmall {
+		fs :=tables.Get()
+		if embdLarge {
+			f, err := fs.Open(path.Base(macpack.RemoteIeeeMACLarge))
+			if err != nil {
+				return nil, err
+			}
+			defer f.Close()
+			opts = append(opts, macpack.WithReaderSource(f))
+		}
+		if embdMedium {
+			f, err := fs.Open(path.Base(macpack.RemoteIeeeMACMedium))
+			if err != nil {
+				return nil, err
+			}
+			defer f.Close()
+			opts = append(opts, macpack.WithReaderSource(f))
+		}
+		if embdSmall {
+			f, err := fs.Open(path.Base(macpack.RemoteIeeeMACSmall))
+			if err != nil {
+				return nil, err
+			}
+			defer f.Close()
+			opts = append(opts, macpack.WithReaderSource(f))
+		}
+	}
 	if local != "" {
 		opts = append(opts, macpack.WithLocalSource(local))
 	}
-	return opts
+	return opts, nil
 }
 
 func doScan(ctx context.Context) ([]*arp.Entry, error) {
