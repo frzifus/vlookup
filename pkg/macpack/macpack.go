@@ -49,6 +49,24 @@ func WithRemoteSource(path string) Option {
 	}
 }
 
+// WithReaderSource adds entries from a reader to the macpack register.
+// The underlying csv source should be formatted and represent the following
+// layout:
+// - Registry,Assignment,Organization Name,Organization Address
+// - MA-L, MA-S,AAAAAAAAA, orga1, A street Moscow RU 1234
+func WithReaderSource(r io.Reader) Option {
+	return func(m MacPack) error {
+		mp, err := newMacPack(r)
+		if err != nil {
+			return err
+		}
+		for k, v := range mp {
+			m[k] = v
+		}
+		return nil
+	}
+}
+
 // WithLocalSource adds entries from a local location to the macpack register.
 // e.g. path: /opt/list.csv
 // The csv source should be formatted represent the following layout:
