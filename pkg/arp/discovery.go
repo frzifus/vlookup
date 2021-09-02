@@ -30,11 +30,11 @@ func NewDiscovery(iface *net.Interface) (*Discovery, error) {
 		targets = append(targets, t...)
 	}
 
-	ips := make([]net.IP, 0)
+	ips := make(map[string]net.IP, 0)
 	for _, a := range addresses {
 		if ipnet, ok := a.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
 			if x := ipnet.IP.To4(); x != nil {
-				ips = append(ips, ipnet.IP)
+				ips[ipnet.String()] = ipnet.IP
 			}
 		}
 	}
@@ -68,7 +68,7 @@ type arpClient interface {
 // required because a raw socket is used.
 type Discovery struct {
 	client       arpClient
-	myAddresses  []net.IP
+	myAddresses  map[string]net.IP
 	targets      []net.IP
 	wTimeout     time.Duration
 	rTimeout     time.Duration
@@ -131,15 +131,13 @@ func (a *Discovery) receive(ctx context.Context, response chan<- Entry) error {
 			continue
 		}
 
-		for _, ip := range a.myAddresses {
-			if !resp.SenderIP.Equal(ip) {
-				response <- Entry{
-					Address: resp.SenderIP,
-					Type:    byte(resp.HardwareType),
-					Flags:   byte(resp.ProtocolType),
-					Mac:     resp.SenderHardwareAddr,
-					Device:  a.iface,
-				}
+		if _, ok := a.myAddresses[resp.SenderIP.String()]; ok {
+			response <- Entry{
+				Address: resp.SenderIP,
+				Type:    byte(resp.HardwareType),
+				Flags:   byte(resp.ProtocolType),
+				Mac:     resp.SenderHardwareAddr,
+				Device:  a.iface,
 			}
 		}
 	}
