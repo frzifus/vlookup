@@ -2,7 +2,6 @@ package arp
 
 import (
 	"context"
-	"log"
 	"net"
 	"time"
 
@@ -10,8 +9,27 @@ import (
 	"github.com/mdlayher/ethernet"
 )
 
+// Logger interface passes to Discovery
+type Logger interface {
+	Printf(format string, v ...interface{})
+}
+
+type nullLogger struct{}
+
+func (*nullLogger) Printf(format string, v ...interface{}) {}
+
+// Option recognized by Discovery
+type Option func(*Discovery)
+
+// WithLogger creates an option that sets the given logger to a Discovery object
+func WithLogger(l Logger) Option {
+	return func(d *Discovery) {
+		d.logger = l
+	}
+}
+
 // NewDiscovery creates a new arp Discovery service for the given interface
-func NewDiscovery(iface *net.Interface) (*Discovery, error) {
+func NewDiscovery(iface *net.Interface, opts ...Option) (*Discovery, error) {
 	c, err := arp.Dial(iface)
 	if err != nil {
 		return nil, err
@@ -39,7 +57,7 @@ func NewDiscovery(iface *net.Interface) (*Discovery, error) {
 		}
 	}
 
-	return &Discovery{
+	d := &Discovery{
 		client:       c,
 		sendTimeout:  10 * time.Millisecond,
 		wTimeout:     2 * time.Second,
@@ -49,7 +67,14 @@ func NewDiscovery(iface *net.Interface) (*Discovery, error) {
 		targets:      targets,
 		hosts:        make(chan net.IP),
 		iface:        iface,
-	}, nil
+		logger:       &nullLogger{},
+	}
+
+	for _, o := range opts {
+		o(d)
+	}
+
+	return d, nil
 }
 
 type arpClient interface {
@@ -77,6 +102,7 @@ type Discovery struct {
 	hosts        chan net.IP
 	discovered   discoveryTable
 	iface        *net.Interface
+	logger       Logger
 }
 
 // Close the unix raw socket used for sending and receiving
@@ -103,12 +129,12 @@ func (a *Discovery) scan(ctx context.Context) {
 		}
 		// Set request deadline from flag
 		if err := a.client.SetWriteDeadline(time.Now().Add(a.wTimeout)); err != nil {
-			log.Printf("error: %w\n", err)
+			a.logger.Printf("error: %w\n", err)
 			continue
 		}
 
 		if err := a.client.Request(ip); err != nil {
-			log.Printf("error: %w\n", err)
+			a.logger.Printf("error: %w\n", err)
 		}
 		time.Sleep(a.sendTimeout)
 	}
@@ -127,7 +153,7 @@ func (a *Discovery) receive(ctx context.Context, response chan<- Entry) error {
 		}
 
 		if resp.Operation != arp.OperationReply {
-			log.Println("warn: invalid operation")
+			a.logger.Printf("warn: invalid operation")
 			continue
 		}
 
