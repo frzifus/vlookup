@@ -11,6 +11,8 @@ LDFLAGS=-ldflags "-X github.com/frzifus/vlookup/pkg/version.hash=${GIT_VER} \
 # Build the project
 all: amd64 arm
 
+build_deps:
+	go install golang.org/x/lint/golint@latest
 amd64:
 	GOOS=linux GOARCH=amd64 go build ${LDFLAGS} -o ${BUILD_DIR}/${APP}-linux-amd64 -v cmd/${APP}/*.go
 arm:
