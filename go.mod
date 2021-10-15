@@ -1,6 +1,6 @@
 module github.com/frzifus/vlookup
 
-go 1.16
+go 1.17
 
 require (
 	github.com/google/go-cmp v0.3.1
