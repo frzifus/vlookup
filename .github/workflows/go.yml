@@ -18,11 +18,14 @@ jobs:
       with:
         go-version: 1.17
 
-    # - name: Lint // TODO
-    #   run: make lint
+    - name: deps
+      run: make build_deps
 
-    # - name: Run tests // TODO
-    #   run: make test
+    - name: Lint
+      run: make lint
+
+    - name: Run tests
+      run: make test
 
     - name: Build amd64
       run: make amd64
