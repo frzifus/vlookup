@@ -1,23 +1,28 @@
 # github.com/google/go-cmp v0.3.1
-## explicit
+## explicit; go 1.8
 github.com/google/go-cmp/cmp
 github.com/google/go-cmp/cmp/internal/diff
 github.com/google/go-cmp/cmp/internal/flags
 github.com/google/go-cmp/cmp/internal/function
 github.com/google/go-cmp/cmp/internal/value
 # github.com/mdlayher/arp v0.0.0-20191213142603-f72070a231fc
-## explicit
+## explicit; go 1.12
 github.com/mdlayher/arp
 # github.com/mdlayher/ethernet v0.0.0-20190606142754-0394541c37b7
-## explicit
+## explicit; go 1.12
 github.com/mdlayher/ethernet
 # github.com/mdlayher/raw v0.0.0-20210412142147-51b895745faf
-## explicit
+## explicit; go 1.12
 github.com/mdlayher/raw
 # golang.org/x/net v0.0.0-20210423184538-5f58ad60dda6
-## explicit
+## explicit; go 1.11
 golang.org/x/net/bpf
+golang.org/x/net/dns/dnsmessage
+golang.org/x/net/internal/iana
+golang.org/x/net/internal/socket
+golang.org/x/net/ipv4
 # golang.org/x/sys v0.0.0-20210423185535-09eb48e85fd7
-## explicit
+## explicit; go 1.12
 golang.org/x/sys/internal/unsafeheader
 golang.org/x/sys/unix
+golang.org/x/sys/windows
