@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -25,19 +26,13 @@ const (
 
 func main() {
 	var (
-		srcFetchMacLarge  = flag.Bool("src.fetch-l", false, "get large from ieee.org")
-		srcFetchMacMedium = flag.Bool("src.fetch-m", false, "get medium from ieee.org")
-		srcFetchMacSmall  = flag.Bool("src.fetch-s", false, "get small from ieee.org")
+		source = flag.String("src", "embd-l", "options: ieee-s, ieee-m, ieee-l, embd-s, embd-m, embd-l")
 
-		srcEmbdMacLarge  = flag.Bool("src.embd-l", false, "embedded large from ieee.org")
-		srcEmbdMacMedium = flag.Bool("src.embd-m", false, "embedded medium from ieee.org")
-		srcEmbdMacSmall  = flag.Bool("src.embd-s", false, "embedded small from ieee.org")
-
-		srcLocalFile      = flag.String("src.local-file", "", "use file input")
+		srcLocalFile = flag.String("src.local-file", "", "use file input")
 
 		trimAddress = flag.Int("trim.address", 40, "limits the length of the address field")
 
-		arpScan    = flag.Bool("arp.scan", false, "actively searches the network for other devices, this operation requires root privileges")
+		arpScan    = flag.Bool("arp.scan", true, "actively searches the network for other devices, this operation requires root privileges")
 		arpTimeout = flag.Duration("arp.timeout", 10*time.Second, "time to wait for responses")
 
 		iface = flag.String("i", "", "filter interface")
@@ -51,11 +46,7 @@ func main() {
 		return
 	}
 
-	opts, err := srcOptions(
-		*srcFetchMacLarge, *srcFetchMacMedium, *srcFetchMacSmall,
-		*srcEmbdMacLarge, *srcEmbdMacMedium, *srcEmbdMacSmall,
-		*srcLocalFile,
-	)
+	opts, err := srcOptions(*source, *srcLocalFile)
 	if err != nil {
 		log.Fatalln(err)
 	}
@@ -68,7 +59,7 @@ func main() {
 	defer cancel()
 	var scanResult []*arp.Entry
 	if *arpScan {
-		if scanResult, err = doScan(ctx); err != nil {
+		if scanResult, err = doScan(ctx, *iface); err != nil {
 			log.Fatalln(err)
 		}
 		log.Println("finished scan")
@@ -99,7 +90,6 @@ func main() {
 	fmt.Fprintf(&buf, format, "---", "---------", "--", "---", "----", "-------")
 	var i int
 	for _, e := range entries {
-		i++
 		if *iface != "" && e.Device != nil && e.Device.Name != *iface {
 			continue
 		}
@@ -116,6 +106,7 @@ func main() {
 			}
 		}
 		ip := e.Address.String()
+		i++
 		fmt.Fprintf(&buf, format, idx, devIface, ip, mac, name, addr)
 	}
 	var b io.Reader = &buf
@@ -132,55 +123,51 @@ func main() {
 	}
 }
 
-func srcOptions(
-	large, medium, small bool,
-	embdLarge, embdMedium, embdSmall bool,
-	local string,
-) ([]macpack.Option, error) {
+func srcOptions(source string, local string) ([]macpack.Option, error) {
 	var opts []macpack.Option
-	if large {
-		opts = append(opts, macpack.WithRemoteSource(macpack.RemoteIeeeMACLarge))
-	}
-	if medium {
-		opts = append(opts, macpack.WithRemoteSource(macpack.RemoteIeeeMACLarge))
-	}
-	if small {
-		opts = append(opts, macpack.WithRemoteSource(macpack.RemoteIeeeMACSmall))
-	}
-	if embdLarge || embdMedium || embdSmall {
-		fs :=tables.Get()
-		if embdLarge {
-			f, err := fs.Open(path.Base(macpack.RemoteIeeeMACLarge))
-			if err != nil {
-				return nil, err
-			}
-			defer f.Close()
-			opts = append(opts, macpack.WithReaderSource(f))
-		}
-		if embdMedium {
-			f, err := fs.Open(path.Base(macpack.RemoteIeeeMACMedium))
-			if err != nil {
-				return nil, err
-			}
-			defer f.Close()
-			opts = append(opts, macpack.WithReaderSource(f))
-		}
-		if embdSmall {
-			f, err := fs.Open(path.Base(macpack.RemoteIeeeMACSmall))
-			if err != nil {
-				return nil, err
-			}
-			defer f.Close()
-			opts = append(opts, macpack.WithReaderSource(f))
-		}
-	}
 	if local != "" {
+		opts = append(opts, macpack.WithLocalSource(local))
+		return opts, nil
+	}
+
+	fs := tables.Get()
+	switch source {
+	case "":
+		return nil, errors.New("missing data source")
+	case "ieee-l":
+		opts = append(opts, macpack.WithRemoteSource(macpack.RemoteIeeeMACLarge))
+	case "ieee-m":
+		opts = append(opts, macpack.WithRemoteSource(macpack.RemoteIeeeMACLarge))
+	case "ieee-s":
+		opts = append(opts, macpack.WithRemoteSource(macpack.RemoteIeeeMACSmall))
+	case "embd-l":
+		f, err := fs.Open(path.Base(macpack.RemoteIeeeMACLarge))
+		if err != nil {
+			return nil, err
+		}
+		defer f.Close()
+		opts = append(opts, macpack.WithReaderSource(f))
+	case "embd-m":
+		f, err := fs.Open(path.Base(macpack.RemoteIeeeMACMedium))
+		if err != nil {
+			return nil, err
+		}
+		defer f.Close()
+		opts = append(opts, macpack.WithReaderSource(f))
+	case "embd-s":
+		f, err := fs.Open(path.Base(macpack.RemoteIeeeMACSmall))
+		if err != nil {
+			return nil, err
+		}
+		defer f.Close()
+		opts = append(opts, macpack.WithReaderSource(f))
+	default:
 		opts = append(opts, macpack.WithLocalSource(local))
 	}
 	return opts, nil
 }
 
-func doScan(ctx context.Context) ([]*arp.Entry, error) {
+func doScan(ctx context.Context, use string) ([]*arp.Entry, error) {
 	if os.Geteuid() > 0 {
 		log.Fatalln("user has insufficient permissions")
 	}
@@ -193,6 +180,10 @@ func doScan(ctx context.Context) ([]*arp.Entry, error) {
 	errc := make(chan error)
 	var entries []*arp.Entry
 	for _, iface := range ifaces {
+		if use != "" && use != iface.Name {
+			continue
+		}
+
 		go func(ctx context.Context, iface net.Interface) {
 			if iface.Flags&(net.FlagLoopback|net.FlagPointToPoint) != 0 ||
 				iface.Flags&net.FlagUp == 0 {
@@ -210,6 +201,7 @@ func doScan(ctx context.Context) ([]*arp.Entry, error) {
 			if err := d.Find(ctx, hosts); err != nil {
 				errc <- err
 			}
+
 		}(ctx, iface)
 	}
 	for {

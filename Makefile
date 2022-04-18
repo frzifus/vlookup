@@ -14,9 +14,9 @@ all: amd64 arm
 build_deps:
 	go install golang.org/x/lint/golint@latest
 amd64:
-	GOOS=linux GOARCH=amd64 go build ${LDFLAGS} -o ${BUILD_DIR}/${APP}-linux-amd64 -v cmd/${APP}/*.go
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build ${LDFLAGS} -o ${BUILD_DIR}/${APP}-linux-amd64 -v cmd/${APP}/*.go
 arm:
-	GOOS=linux GOARCH=arm go build ${LDFLAGS} -o ${BUILD_DIR}/${APP}-linux-arm -v cmd/${APP}/*.go
+	CGO_ENABLED=0 GOOS=linux GOARCH=arm go build ${LDFLAGS} -o ${BUILD_DIR}/${APP}-linux-arm -v cmd/${APP}/*.go
 
 lint:
 	golint -set_exit_status ./pkg/... ./cmd/...
