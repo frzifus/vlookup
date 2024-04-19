@@ -10,6 +10,6 @@ require (
 
 require (
 	github.com/mdlayher/raw v0.0.0-20210412142147-51b895745faf // indirect
-	golang.org/x/net v0.17.0 // indirect
-	golang.org/x/sys v0.13.0 // indirect
+	golang.org/x/net v0.23.0 // indirect
+	golang.org/x/sys v0.18.0 // indirect
 )
