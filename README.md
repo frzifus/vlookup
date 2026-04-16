@@ -23,6 +23,7 @@
   - [Interface Filtering](#interface-filtering)
   - [Custom Timeout](#custom-timeout)
   - [Save Results](#save-results)
+  - [Truncate Long Addresses](#truncate-long-addresses)
 - [Examples](#examples)
 - [Command Reference](#command-reference)
   - [vlookup](#vlookup-1)
@@ -59,7 +60,7 @@ vlookup stands out because it embeds the full IEEE vendor database directly in t
 - **Custom Databases**: Support for organization-specific MAC address mappings
 - **Flexible Output**: Display results in terminal and/or save to files
 - **Configurable Timeouts**: Adjust scanning duration for different network sizes
-- **Cross-Architecture**: Builds for AMD64 and ARM Linux systems
+- **Cross-Architecture**: Builds for AMD64 and ARM (32-bit) Linux; ARM64 supported via cross-compilation
 
 ## How It Works
 
@@ -124,17 +125,16 @@ See [Installation](#installation) for more details, or [Examples](#examples) for
 **System Requirements**:
 - Linux kernel 2.6 or later
 - IPv4 network connectivity
-- AMD64 or ARM architecture
+- AMD64, ARM (32-bit), or ARM64/AArch64 architecture
 
 **Privileges**:
-- **Active scanning**: Root privileges or `CAP_NET_RAW` capability
+- **Active scanning**: Root privileges required (euid 0). Passive mode can be used without root.
 - **Passive mode**: No special privileges required
 
-**Grant capability to avoid sudo**:
-```bash
-sudo setcap cap_net_raw+ep /usr/local/bin/vlookup
-vlookup  # Now works without sudo
-```
+> **Note**: Although the underlying ARP socket requires `CAP_NET_RAW`, vlookup currently checks for root (euid 0) directly, so setting `CAP_NET_RAW` via `setcap` alone is **not sufficient** to run active scanning without sudo. Use passive mode (`--arp.scan=false`) as a root-free alternative:
+> ```bash
+> vlookup --arp.scan=false  # Works without root
+> ```
 
 **Limitations**:
 - Linux only (no Windows or macOS support)
@@ -159,8 +159,8 @@ vlookup --version
 
 **Platform-specific notes**:
 - **AMD64**: Use `vlookup-linux-amd64` (most common for servers and desktops)
-- **ARM**: Use `vlookup-linux-arm` (for Raspberry Pi, embedded devices, etc.)
-- **ARM64/AArch64**: Build from source with `GOARCH=arm64 make` (see Option 2)
+- **ARM (32-bit)**: Use `vlookup-linux-arm` (for Raspberry Pi 1/2/Zero, older embedded devices)
+- **ARM64/AArch64**: Build from source (see cross-compile instructions in Option 2)
 
 ### Option 2: Build from Source
 
@@ -176,19 +176,22 @@ make amd64  # For AMD64
 # or
 make arm    # For ARM
 
-# Install binaries
+# Install vlookup binary
 sudo cp build/bin/vlookup-linux-amd64 /usr/local/bin/vlookup
-sudo cp build/bin/crawler-linux-amd64 /usr/local/bin/crawler
 
 # Verify installation
 vlookup --version
-crawler --version
 ```
 
 **Cross-compiling for ARM64**:
 ```bash
-CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -o build/bin/vlookup-linux-arm64 ./cmd/vlookup/
+CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build \
+  -ldflags "-X github.com/frzifus/vlookup/pkg/version.hash=$(git rev-parse HEAD) \
+            -X github.com/frzifus/vlookup/pkg/version.buildtimestamp=$(date +%FT%T%Z)" \
+  -o build/bin/vlookup-linux-arm64 ./cmd/vlookup/
 ```
+
+> **Note**: The `-ldflags` flags embed version metadata (commit hash and build timestamp) into the binary, matching the behavior of `make amd64` and `make arm`. Without these flags, `--version` will not show build information.
 
 ### Option 3: Using Go Install (Developers)
 
@@ -282,6 +285,17 @@ sudo vlookup -o network-scan.txt
 
 # Suppress terminal output
 sudo vlookup -o network-scan.txt > /dev/null
+```
+
+> **Note**: When `-o` is used, output goes to **both** stdout and the file simultaneously (via `io.TeeReader`). To suppress terminal output, redirect stdout to `/dev/null`.
+
+### Truncate Long Addresses
+
+Limit the vendor address field width for cleaner output:
+
+```bash
+# Truncate address field to 20 characters (default: 40)
+sudo vlookup --trim.address=20
 ```
 
 ## Examples
@@ -448,6 +462,8 @@ Network scanning and MAC address lookup tool.
 - `ieee-l`, `ieee-m`, `ieee-s`: Download from IEEE (large, medium, small)
 - `embd-l`, `embd-m`, `embd-s`: Use embedded databases (large, medium, small)
 
+> **Known issue**: The `-src ieee-m` flag currently fetches the large database instead of the medium database. Use `-src embd-m` for the correct embedded medium database, or `-src ieee-l` / `-src ieee-s` for remote large/small databases.
+
 ### crawler
 
 Database download utility for updating IEEE vendor databases.
@@ -460,7 +476,7 @@ Database download utility for updating IEEE vendor databases.
 | `--src.fetch-all` | bool | `false` | Download all three database sizes |
 | `--src.fetch-custom` | string | `""` | Download from custom URL |
 | `--timeout` | duration | `30s` | HTTP request timeout |
-| `-o` | string | `""` | Output filename prefix for downloaded files |
+| `-o` | string | `""` | Output filename prefix for downloaded files (if empty, files are named `{date}_{index}_unknown.csv`) |
 | `--version` | bool | `false` | Print version information and exit |
 
 **Database Sizes**:
@@ -490,11 +506,11 @@ IEEE allocates new MAC address ranges monthly. Update databases quarterly:
 # Download latest databases
 crawler --src.fetch-all -o updated
 
-# Verify download
+# Verify download (files are named: {date}_{index}_{prefix}.csv)
 ls -lh *_updated.csv
 
 # Use updated database
-vlookup --src.local-file=2025-12-03_0_updated.csv --arp.scan=false
+vlookup --src.local-file=*_updated.csv --arp.scan=false
 ```
 
 ### Database Sources
@@ -541,7 +557,7 @@ MA-S,AABBCCDEF,Small Block Inc,"789 Elm Street, City, ZIP"
 | ARP scanning | Yes | Yes | Yes (`-sn`) |
 | MAC vendor lookup | Yes (embedded) | Yes (external file) | Yes (external DB) |
 | Offline operation | Yes (passive mode) | No | Partial |
-| Root required | Active mode only | Yes | Varies |
+| Root required | Active mode (euid 0) | Yes | Varies |
 | Embedded vendor DB | Yes (~2.7M entries) | No (needs oui.txt) | No (needs nmap-mac-prefixes) |
 | Custom databases | Yes | Limited | Limited |
 | Binary size | Small (~10MB) | Small (~300KB) | Large (~5MB+) |
@@ -562,7 +578,7 @@ MA-S,AABBCCDEF,Small Block Inc,"789 Elm Street, City, ZIP"
 
 ### Error: "user has insufficient permissions"
 
-**Cause**: Active ARP scanning requires root or CAP_NET_RAW capability
+**Cause**: Active ARP scanning requires root privileges (euid 0)
 
 **Solutions**:
 
@@ -571,13 +587,7 @@ MA-S,AABBCCDEF,Small Block Inc,"789 Elm Street, City, ZIP"
    sudo vlookup
    ```
 
-2. **Grant capability** (persistent):
-   ```bash
-   sudo setcap cap_net_raw+ep /usr/local/bin/vlookup
-   vlookup  # Now works without sudo
-   ```
-
-3. **Use passive mode** (no privileges):
+2. **Use passive mode** (no privileges):
    ```bash
    vlookup --arp.scan=false
    ```
@@ -770,20 +780,15 @@ vlookup --arp.scan=false
 ### Privilege Requirements
 
 **Active Scanning** requires:
-- Root privileges (`sudo vlookup`), OR
-- `CAP_NET_RAW` capability
+- Root privileges (`sudo vlookup`) — vlookup checks for euid 0 directly
 
 **Why**: Raw socket access needed to send/receive ARP packets
 
-**Grant Capability**:
-```bash
-sudo setcap cap_net_raw+ep /usr/local/bin/vlookup
-```
+> **Note**: Setting `CAP_NET_RAW` via `setcap` is **not sufficient** to bypass the root check. Use passive mode instead if you need to run without root.
 
 **Risks**:
-- Grants raw packet access to the binary
-- Binary can craft arbitrary network packets
-- Only grant to trusted binaries
+- Running as root grants full system access to the binary
+- Only grant root to trusted binaries
 
 ---
 
@@ -881,7 +886,7 @@ A: The default `embd-l` (large) is recommended for most use cases. Use `embd-s` 
 ### Troubleshooting
 
 **Q: vlookup says "user has insufficient permissions" — what do I do?**
-A: Either run with `sudo`, grant the binary `CAP_NET_RAW` capability, or use passive mode (`--arp.scan=false`). See [Troubleshooting](#troubleshooting) for details.
+A: Run with `sudo`, or use passive mode (`--arp.scan=false`) which requires no special privileges. Note that setting `CAP_NET_RAW` via `setcap` is currently not sufficient because vlookup checks for root (euid 0) directly. See [Troubleshooting](#troubleshooting) for details.
 
 **Q: Why are some MAC vendors showing "not found"?**
 A: The vendor may have been recently allocated by IEEE (update your database), or the MAC may be locally administered (second hex digit is 2, 6, A, or E), which won't have an IEEE vendor entry.
