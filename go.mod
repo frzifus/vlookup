@@ -1,6 +1,6 @@
 module github.com/frzifus/vlookup
 
-go 1.18
+go 1.25.0
 
 require (
 	github.com/google/go-cmp v0.7.0
@@ -10,6 +10,6 @@ require (
 
 require (
 	github.com/mdlayher/raw v0.0.0-20210412142147-51b895745faf // indirect
-	golang.org/x/net v0.38.0 // indirect
-	golang.org/x/sys v0.31.0 // indirect
+	golang.org/x/net v0.55.0 // indirect
+	golang.org/x/sys v0.45.0 // indirect
 )
